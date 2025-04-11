@@ -3,6 +3,7 @@
 ## Quick start
 ```bash
 rustc main.rs
+./main
 ```
 
 
