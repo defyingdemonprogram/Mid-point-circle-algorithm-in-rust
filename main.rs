@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io;
+use std::f32::consts::PI;
 use std::io::Write;
 
 fn save_as_ppm(file_path: &str, pixels: &[u32], width: usize, height: usize) -> io::Result<()> {
@@ -26,7 +27,7 @@ fn stripe_pattern(pixels: &mut [u32], width: usize, height: usize, tile_size: us
                 background
             } else {
                 foreground
-            }
+            };
         }
     }
 }
@@ -38,6 +39,44 @@ fn checker_pattern(pixels: &mut [u32], width: usize, height: usize, tile_size: u
                 background
             } else {
                 foreground
+            }
+        }
+    }
+}
+
+fn diagonal_gradient(pixels: &mut [u32], width: usize, height: usize, foreground: u32, background: u32) {
+    let color_start = foreground;
+    let color_end = background;
+
+    for y in 0..height {
+        for x in 0..width {
+            let t = (x + y) as f32 / (width + height) as f32;
+
+            let r_start = ((color_start >> 8*2) & 0xFF) as f32;
+            let g_start = ((color_start >> 8*1) & 0xFF) as f32;
+            let b_start = ((color_start >> 8*0) & 0xFF) as f32;
+
+            let r_end = ((color_end >> 8*2) & 0xFF) as f32;
+            let g_end = ((color_end >> 8*1) & 0xFF) as f32;
+            let b_end = ((color_end >> 8*0) & 0xFF) as f32;
+
+            let r = (r_start + (r_end - r_start) * t).round() as u32;
+            let g = (g_start + (g_end - g_start) * t).round() as u32;
+            let b = (b_start + (b_end - b_start) * t).round() as u32;
+
+            pixels[y * width + x] = (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
+fn sine_wave_pattern(pixels: &mut [u32], width: usize, height: usize, wavelength: f32, amplitude: f32, foreground: u32, background: u32) {
+    for y in 0..height {
+        for x in 0..width {
+            let wave = (y as f32 + amplitude * (2.0 * PI * x as f32 / wavelength).sin()) as usize;
+            pixels[y * width + x] = if wave % 20 < 10 {
+                foreground + y as u32
+            } else {
+                background
             }
         }
     }
@@ -62,6 +101,70 @@ fn fill_solid_circle(pixels: &mut [u32], width: usize, height: usize, radius: us
     }
 }
 
+fn lerp(a: f32, b: f32, p: f32) -> f32 {
+    a + (b - a) * p
+}
+
+fn blend_pixels_gamma_corrected(background: u32, foreground: u32, p: f32) -> u32 {
+    let br = (background >> (8 * 2)) & 0xFF;
+    let fr = (foreground >> (8 * 2)) & 0xFF;
+    let r = lerp((br * br) as f32, (fr * fr) as f32, p).sqrt() as u32;
+
+    let bg = (background >> (8 * 1)) & 0xFF;
+    let fg = (foreground >> (8 * 1)) & 0xFF;
+    let g = lerp((bg * bg) as f32, (fg * fg) as f32, p).sqrt() as u32;
+
+    let bb = (background >> (8 * 0)) & 0xFF;
+    let fb = (foreground >> (8 * 0)) & 0xFF;
+    let b = lerp((bb * bb) as f32, (fb * fb) as f32, p).sqrt() as u32;
+
+    (r << (8 * 2)) | (g << (8 * 1)) | (b << (8 * 0))
+}
+
+fn blend_pixels_naively(background: u32, foreground: u32, p: f32) -> u32 {
+    let br = (background >> (8 * 2)) & 0xFF;
+    let fr = (foreground >> (8 * 2)) & 0xFF;
+    let r = lerp(br as f32, fr as f32, p) as u32;
+
+    let bg = (background >> (8 * 1)) & 0xFF;
+    let fg = (foreground >> (8 * 1)) & 0xFF;
+    let g = lerp(bg as f32, fg as f32, p) as u32;
+
+    let bb = (background >> (8 * 0)) & 0xFF;
+    let fb = (foreground >> (8 * 0)) & 0xFF;
+    let b = lerp(bb as f32, fb as f32, p) as u32;
+
+    (r << (8 * 2)) | (g << (8 * 1)) | (b << (8 * 0))
+}
+
+fn fill_solid_aa_circle<Blender>(pixels: &mut [u32], width: usize, height: usize, radius: usize, foreground: u32, background: u32, blend_pixels: Blender) where Blender: Fn(u32, u32, f32) -> u32 {
+    let cx = width as f32 * 0.5;
+    let cy = height as f32 * 0.5;
+    let r = radius as f32;
+
+    const AA_RES: usize = 3;
+    const AA_STEP: f32 = 1.0 / (AA_RES + 1) as f32;
+
+    for y in 0..height {
+        for x in 0..width {
+            let mut aa_count = 0;
+            for aay in 0..AA_RES {
+                for aax in 0..AA_RES {
+                    let px = x as f32 + AA_STEP + aax as f32 * AA_STEP;
+                    let py = y as f32 + AA_STEP + aay as f32 * AA_STEP;
+                    let dx = cx - px;
+                    let dy = cy - py;
+                    if dx*dx + dy*dy <= r*r {
+                        aa_count += 1;
+                    }
+                }
+            }
+            let p = aa_count as f32 / (AA_RES * AA_RES) as f32;
+
+            pixels[y*width + x] = blend_pixels(background, foreground, p);
+        }
+    }
+}
 
 fn draw_hollow_circle(pixels: &mut [u32], width: usize, height: usize, radius: usize, foreground: u32, background: u32) {
     let cx = width as f32 * 0.5;
@@ -129,25 +232,41 @@ fn draw_circle_with_mid_point_algorithm(pixels: &mut [u32], width: usize, height
 }
 
 fn main() {
-    const WIDTH: usize = 256;
-    const HEIGHT: usize = 256;
+    const WIDTH: usize = 256*5;
+    const HEIGHT: usize = 256*5;
+    const RADIUS: usize = WIDTH / 3;
+
+    const WAVELENGTH: f32 = WIDTH as f32 / 5.0;
+    const AMPLITUTE: f32 = HEIGHT as f32 / 40.0;
+
     const FOREGROUND: u32 = 0xFF00FF;
     const BACKGROUND: u32 = 0x181818;
     let mut pixels = [0u32; WIDTH*HEIGHT];
 
     pixels.fill(0xFF0000);
-    stripe_pattern(&mut pixels, WIDTH, HEIGHT, 32, FOREGROUND, BACKGROUND);
-    let _ = save_as_ppm("stride_pattern.ppm", &pixels, WIDTH, HEIGHT);
+    stripe_pattern(&mut pixels, WIDTH, HEIGHT, WIDTH / 16, FOREGROUND, BACKGROUND);
+    save_as_ppm("stride_pattern.ppm", &pixels, WIDTH, HEIGHT).unwrap();
 
-    checker_pattern(&mut pixels, WIDTH, HEIGHT, 32, FOREGROUND, BACKGROUND);
-    let _ = save_as_ppm("checker_pattern.ppm", &pixels, WIDTH, HEIGHT);
+    checker_pattern(&mut pixels, WIDTH, HEIGHT, WIDTH / 16, FOREGROUND, BACKGROUND);
+    save_as_ppm("checker_pattern.ppm", &pixels, WIDTH, HEIGHT).unwrap();
 
-    fill_solid_circle(&mut pixels, WIDTH, HEIGHT, WIDTH/2, FOREGROUND, BACKGROUND);
-    let _ = save_as_ppm("solid_circle.ppm", &pixels, WIDTH, HEIGHT);
+    diagonal_gradient(&mut pixels, WIDTH, HEIGHT, FOREGROUND, BACKGROUND);
+    save_as_ppm("diagonal-gradient.ppm", &pixels, WIDTH, HEIGHT).unwrap();
 
-    draw_hollow_circle(&mut pixels, WIDTH, HEIGHT, WIDTH/2, FOREGROUND, BACKGROUND);
-    let _ = save_as_ppm("hollow_circle.ppm", &pixels, WIDTH, HEIGHT);
+    fill_solid_circle(&mut pixels, WIDTH, HEIGHT, RADIUS, FOREGROUND, BACKGROUND);
+    save_as_ppm("solid_circle.ppm", &pixels, WIDTH, HEIGHT).unwrap();
+
+    sine_wave_pattern(&mut pixels, WIDTH, HEIGHT, WAVELENGTH, AMPLITUTE, FOREGROUND, BACKGROUND);
+    save_as_ppm("sine-wave-pattern.ppm", &pixels, WIDTH, HEIGHT).unwrap();
+
+    fill_solid_aa_circle(&mut pixels, WIDTH, HEIGHT, RADIUS, FOREGROUND, BACKGROUND, blend_pixels_naively);
+    save_as_ppm("solid-aa-naively.ppm", &pixels, WIDTH, HEIGHT).unwrap();
+
+    fill_solid_aa_circle(&mut pixels, WIDTH, HEIGHT, RADIUS, FOREGROUND, BACKGROUND, blend_pixels_gamma_corrected);
+    save_as_ppm("solid-aa-gamma-corrected.ppm", &pixels, WIDTH, HEIGHT).unwrap();
+    draw_hollow_circle(&mut pixels, WIDTH, HEIGHT, RADIUS, FOREGROUND, BACKGROUND);
+    save_as_ppm("hollow_circle.ppm", &pixels, WIDTH, HEIGHT).unwrap();
 
     draw_circle_with_mid_point_algorithm(&mut pixels, WIDTH, HEIGHT, WIDTH/2, FOREGROUND, BACKGROUND);
-    let _ = save_as_ppm("mid_point_circle_algo.ppm", &pixels, WIDTH, HEIGHT);
+    let _ = save_as_ppm("mid_point_circle_algo.ppm", &pixels, WIDTH, HEIGHT).unwrap();
 }
