@@ -44,14 +44,14 @@ fn checker_pattern(pixels: &mut [u32], width: usize, height: usize, tile_size: u
 }
 
 fn fill_solid_circle(pixels: &mut [u32], width: usize, height: usize, radius: usize, foreground: u32, background: u32) {
-    let cx = (width / 2) as i32;
-    let cy = (height / 2) as i32;
-    let r = radius as i32;
+    let cx = width as f32 * 0.5;
+    let cy = height as f32 * 0.5;
+    let r = radius as f32;
 
     for y in 0..height {
         for x in 0..width {
-            let dx = cx - x as i32;
-            let dy = cy - y as i32;
+            let dx = cx - x as f32 - 0.5;
+            let dy = cy - y as f32 - 0.5;
 
             pixels[y * width + x] = if dx * dx + dy * dy <= r * r {
                 foreground
@@ -64,16 +64,24 @@ fn fill_solid_circle(pixels: &mut [u32], width: usize, height: usize, radius: us
 
 
 fn draw_hollow_circle(pixels: &mut [u32], width: usize, height: usize, radius: usize, foreground: u32, background: u32) {
-    let cx = (width / 2) as i32;
-    let cy = (height / 2) as i32;
-    let r = radius as i32;
+    let cx = width as f32 * 0.5;
+    let cy = height as f32 * 0.5;
+    let r = radius as f32;
+
+    let thickness = 1.0;
+    let _r_squared = r * r;
+    let r_inner = (r - thickness).max(0.0);
+    let r_outer = r + thickness;
+    let r_inner_squared = r_inner * r_inner;
+    let r_outer_squared = r_outer * r_outer;
 
     for y in 0..height {
         for x in 0..width {
-            let dx = cx - x as i32;
-            let dy = cy - y as i32;
+            let dx = cx - x as f32 - 0.5;
+            let dy = cy - y as f32 - 0.5;
+            let dist_squared = dx * dx + dy * dy;
 
-            pixels[y * width + x] = if dx * dx + dy * dy == r * r {
+            pixels[y * width + x] = if dist_squared >= r_inner_squared && dist_squared <= r_outer_squared {
                 foreground
             } else {
                 background
@@ -100,5 +108,5 @@ fn main() {
     let _ = save_as_ppm("solid_circle.ppm", &pixels, WIDTH, HEIGHT);
 
     draw_hollow_circle(&mut pixels, WIDTH, HEIGHT, WIDTH/2, FOREGROUND, BACKGROUND);
-    let _ = save_as_ppm("hallow_circle.ppm", &pixels, WIDTH, HEIGHT);
+    let _ = save_as_ppm("hollow_circle.ppm", &pixels, WIDTH, HEIGHT);
 }
