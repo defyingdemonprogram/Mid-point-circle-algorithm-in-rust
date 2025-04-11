@@ -90,11 +90,49 @@ fn draw_hollow_circle(pixels: &mut [u32], width: usize, height: usize, radius: u
     }
 }
 
+fn draw_circle_with_mid_point_algorithm(pixels: &mut [u32], width: usize, height: usize, radius: usize, foreground: u32, background: u32) {
+    pixels.fill(background);
+
+    let w = width as i32;
+    let h = height as i32;
+    let r = radius as i32;
+    let cx = w / 2;
+    let cy = w / 2;
+    let mut x = 0;
+    let mut y = r;
+
+    while x <= y {
+        let px = x + cx;
+        let py = y + cy;
+        if (0..w).contains(&px) && (0..h).contains(&py) {
+            assert!(height == width);
+            let dx = px as usize;
+            let dy = py as usize;
+            // Right half circle
+            pixels[dy * width + dx] = foreground;
+            pixels[dx * width + dy] = foreground;
+            pixels[(height - dy) * width + dx] = foreground;
+            pixels[(width - dx) * width + dy] = foreground;
+
+            // Left half circle
+            pixels[dy * width - dx] = foreground;
+            pixels[dx * width - dy] = foreground;
+            pixels[(height - dy) * width - dx] = foreground;
+            pixels[(width - dx) * width - dy] = foreground;
+
+        }
+        x += 1;
+        if x*x + y*y > r*r {
+            y -= 1;
+        }
+    }
+}
+
 fn main() {
     const WIDTH: usize = 256;
     const HEIGHT: usize = 256;
     const FOREGROUND: u32 = 0xFF00FF;
-    const BACKGROUND: u32 = 0x000000;
+    const BACKGROUND: u32 = 0x181818;
     let mut pixels = [0u32; WIDTH*HEIGHT];
 
     pixels.fill(0xFF0000);
@@ -109,4 +147,7 @@ fn main() {
 
     draw_hollow_circle(&mut pixels, WIDTH, HEIGHT, WIDTH/2, FOREGROUND, BACKGROUND);
     let _ = save_as_ppm("hollow_circle.ppm", &pixels, WIDTH, HEIGHT);
+
+    draw_circle_with_mid_point_algorithm(&mut pixels, WIDTH, HEIGHT, WIDTH/2, FOREGROUND, BACKGROUND);
+    let _ = save_as_ppm("mid_point_circle_algo.ppm", &pixels, WIDTH, HEIGHT);
 }
